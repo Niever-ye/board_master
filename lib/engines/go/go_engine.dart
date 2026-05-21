@@ -1,4 +1,3 @@
-import 'dart:isolate';
 import 'dart:math';
 
 import 'package:board_master/core/constants.dart';
@@ -7,7 +6,7 @@ import 'package:board_master/engines/engine_interface.dart';
 import 'package:board_master/engines/go/mcts_node.dart';
 import 'package:board_master/engines/go/playout.dart';
 
-/// MCTS Go engine that runs computation in a separate Isolate.
+/// MCTS Go engine. Runs on the main isolate (web-compatible).
 class GoEngine implements EngineInterface {
   @override
   Future<EngineResult> findBestMove(
@@ -29,7 +28,6 @@ class GoEngine implements EngineInterface {
       return const EngineResult(isPass: true);
     }
 
-    // Run MCTS in an isolate
     final params = _MctsParams(
       board: board,
       size: size,
@@ -38,7 +36,8 @@ class GoEngine implements EngineInterface {
       difficulty: difficulty,
     );
 
-    final result = await Isolate.run(() => _mctsSearch(params));
+    // Run MCTS synchronously (no Isolate — Flutter Web doesn't support isolates)
+    final result = _mctsSearch(params);
     if (result == -1) return const EngineResult(isPass: true);
 
     final row = result ~/ size;

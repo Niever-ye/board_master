@@ -1,4 +1,3 @@
-import 'dart:isolate';
 import 'package:board_master/core/constants.dart';
 import 'package:board_master/core/types.dart';
 import 'package:board_master/engines/engine_interface.dart';
@@ -6,7 +5,7 @@ import 'package:board_master/engines/chess/searcher.dart';
 import 'package:board_master/engines/chess/transposition_table.dart';
 
 /// Chinese Chess engine using alpha-beta search with iterative deepening.
-/// Runs computation in a separate Isolate.
+/// Runs on the main isolate (web-compatible).
 class ChessEngine implements EngineInterface {
 
   @override
@@ -44,7 +43,8 @@ class ChessEngine implements EngineInterface {
       timeLimitSec: timeLimit,
     );
 
-    final result = await Isolate.run(() => _runSearch(params));
+    // Run search synchronously (no Isolate — Flutter Web doesn't support isolates)
+    final result = _runSearch(params);
 
     if (result.$1 < 0) return const EngineResult(isPass: true);
 
