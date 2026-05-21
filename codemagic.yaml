@@ -12,6 +12,7 @@ workflows:
       - name: Build Web
         script: |
           flutter build web --release \
+            --base-href=/board_master/ \
             --build-name=1.0.0 \
             --build-number=1
     artifacts:
