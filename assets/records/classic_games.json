@@ -1,0 +1,38 @@
+[
+  {
+    "title": "Honinbo Shusaku's Ear-Reddening Game",
+    "game_type": "go",
+    "player_name": "Honinbo Shusaku (Black)",
+    "opponent_name": "Inoue Genan Inseki (White)",
+    "result": "B+2",
+    "date_played": "1846-09-11",
+    "board_size": 19,
+    "komi": 0.0,
+    "difficulty": "hard",
+    "raw_data": "(;GM[1]FF[4]SZ[19]KM[0]PB[Honinbo Shusaku]PW[Inoue Genan Inseki]RE[B+2];B[qd];W[pd];B[od];W[pe];B[oc];W[ne];B[nd];W[nc];B[nb];W[me];B[md];W[mc];B[mb];W[lc];B[lb];W[kc];B[ld];W[pf];B[oe];W[qf];B[qe];W[rf];B[of];W[pg];B[qg];W[ph];B[oh];W[re];B[rd];W[se];B[ng];W[nh];B[mg];W[mh];B[ni];W[lg];B[kf];W[lf];B[kg];W[ke];B[jf];W[le];B[kd];W[jd];B[kb];W[je];B[id];W[ie];B[hd];W[he];B[gd];W[gc];B[hc];W[ge];B[fd];W[gb];B[fc];W[fb];B[ec];W[eb];B[dc];W[hb];B[fe];W[gf];B[ff];W[fg];B[gg];W[hg];B[gh];W[hh];B[fh];W[fi];B[gi];W[gi])"
+  },
+  {
+    "title": "Lee Sedol vs AlphaGo - Game 4 (The Divine Move)",
+    "game_type": "go",
+    "player_name": "Lee Sedol (Black)",
+    "opponent_name": "AlphaGo (White)",
+    "result": "B+R",
+    "date_played": "2016-03-13",
+    "board_size": 19,
+    "komi": 7.5,
+    "difficulty": "hard",
+    "raw_data": "(;GM[1]FF[4]SZ[19]KM[7.5]PB[Lee Sedol]PW[AlphaGo]RE[B+R];B[qd];W[pp];B[fc];W[cf];B[cc];W[df];B[dc];W[ed];B[fd];W[fe];B[ge];W[gf];B[ff];W[fg];B[gg];W[gh];B[hh];W[fh];B[hg];W[gi];B[hj];W[fi];B[hi];W[fj])"
+  },
+  {
+    "title": "Fujisawa Hideyuki - Famous Tesuji",
+    "game_type": "go",
+    "player_name": "Fujisawa Hideyuki (Black)",
+    "opponent_name": "Sakata Eio (White)",
+    "result": "B+4.5",
+    "date_played": "1963-05-15",
+    "board_size": 19,
+    "komi": 4.5,
+    "difficulty": "hard",
+    "raw_data": "(;GM[1]FF[4]SZ[19]KM[4.5]PB[Fujisawa Hideyuki]PW[Sakata Eio]RE[B+4.5];B[qd];W[dc];B[pq];W[dd];B[dp];W[pp];B[oq];W[nq];B[np];W[mp];B[mq];W[lq];B[nr];W[nn];B[qm];W[pn];B[qj];W[pl];B[ol];W[pk];B[ok];W[qk];B[pj];W[qi])"
+  }
+]
