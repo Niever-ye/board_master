@@ -24,16 +24,15 @@ class ChessBoardPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final cellW = size.width / 8.0;
-    final cellH = size.height / 9.0;
-    final padding = cellW * 0.5;
-    final boardW = cellW * 8;
-    final boardH = cellH * 9;
+    final cellSize = size.width / 9.0;
+    final pad = cellSize * 0.5;
+    final boardW = cellSize * 8;
+    final boardH = cellSize * 9;
 
     // Board background
     final boardRect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(padding - cellW * 0.2, padding - cellH * 0.2,
-          boardW + cellW * 0.4, boardH + cellH * 0.4),
+      Rect.fromLTWH(pad - cellSize * 0.2, pad - cellSize * 0.2,
+          boardW + cellSize * 0.4, boardH + cellSize * 0.4),
       const Radius.circular(4),
     );
     canvas.drawRRect(boardRect, Paint()..color = AppTheme.woodBoard);
@@ -47,82 +46,82 @@ class ChessBoardPainter extends CustomPainter {
 
     // Horizontal lines
     for (int i = 0; i < 10; i++) {
-      final y = padding + i * cellH;
-      canvas.drawLine(Offset(padding, y), Offset(padding + boardW, y), gridPaint);
+      final y = pad + i * cellSize;
+      canvas.drawLine(Offset(pad, y), Offset(pad + boardW, y), gridPaint);
     }
 
     // Vertical lines (top half, gap at river, bottom half)
     for (int i = 0; i < 9; i++) {
-      final x = padding + i * cellW;
+      final x = pad + i * cellSize;
       // Top half (rows 0-4)
-      canvas.drawLine(Offset(x, padding), Offset(x, padding + 4 * cellH), gridPaint);
+      canvas.drawLine(Offset(x, pad), Offset(x, pad + 4 * cellSize), gridPaint);
       // Bottom half (rows 5-9)
-      canvas.drawLine(Offset(x, padding + 5 * cellH), Offset(x, padding + 9 * cellH), gridPaint);
+      canvas.drawLine(Offset(x, pad + 5 * cellSize), Offset(x, pad + 9 * cellSize), gridPaint);
     }
 
     // Left and right border lines cross the river
     canvas.drawLine(
-      Offset(padding, padding), Offset(padding, padding + 9 * cellH), gridPaint);
+      Offset(pad, pad), Offset(pad, pad + 9 * cellSize), gridPaint);
     canvas.drawLine(
-      Offset(padding + boardW, padding),
-      Offset(padding + boardW, padding + 9 * cellH),
+      Offset(pad + boardW, pad),
+      Offset(pad + boardW, pad + 9 * cellSize),
       gridPaint,
     );
 
     // Palace diagonals
-    _drawPalace(canvas, padding, cellW, cellH, 0); // Black palace (top)
-    _drawPalace(canvas, padding, cellW, cellH, 7); // Red palace (bottom)
+    _drawPalace(canvas, pad, cellSize, 0); // Black palace (top)
+    _drawPalace(canvas, pad, cellSize, 7); // Red palace (bottom)
 
     // River text
-    final riverY = padding + 4.5 * cellH;
+    final riverY = pad + 4.5 * cellSize;
     final tp = TextPainter(
       text: TextSpan(
         text: '楚  河　　　　漢  界',
         style: TextStyle(
           color: AppTheme.gridLine.withAlpha(160),
-          fontSize: cellH * 0.45,
+          fontSize: cellSize * 0.45,
           fontWeight: FontWeight.w500,
         ),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
-    tp.paint(canvas, Offset(padding + (boardW - tp.width) / 2, riverY - tp.height / 2));
+    tp.paint(canvas, Offset(pad + (boardW - tp.width) / 2, riverY - tp.height / 2));
 
     // Last move highlight
     if (lastFromIdx != null) {
       final (r, c) = position.coord(lastFromIdx!);
-      _drawHighlight(canvas, padding + c * cellW, padding + r * cellH, cellW, cellH,
+      _drawHighlight(canvas, pad + c * cellSize, pad + r * cellSize, cellSize, cellSize,
           Colors.yellow.withAlpha(80));
     }
     if (lastToIdx != null) {
       final (r, c) = position.coord(lastToIdx!);
-      _drawHighlight(canvas, padding + c * cellW, padding + r * cellH, cellW, cellH,
+      _drawHighlight(canvas, pad + c * cellSize, pad + r * cellSize, cellSize, cellSize,
           Colors.yellow.withAlpha(120));
     }
 
     // Selected piece highlight
     if (selectedIndex != null) {
       final (r, c) = position.coord(selectedIndex!);
-      _drawHighlight(canvas, padding + c * cellW, padding + r * cellH, cellW, cellH,
+      _drawHighlight(canvas, pad + c * cellSize, pad + r * cellSize, cellSize, cellSize,
           Colors.green.withAlpha(100));
     }
 
     // Legal move indicators
     for (final idx in legalMoveIndices) {
       final (r, c) = position.coord(idx);
-      final x = padding + c * cellW;
-      final y = padding + r * cellH;
+      final x = pad + c * cellSize;
+      final y = pad + r * cellSize;
       if (position.board[idx] != 0) {
         // Capture indicator
         canvas.drawCircle(
           Offset(x, y),
-          cellW * 0.42,
+          cellSize * 0.42,
           Paint()..color = Colors.red.withAlpha(60)..style = PaintingStyle.stroke..strokeWidth = 2.5,
         );
       } else {
         canvas.drawCircle(
           Offset(x, y),
-          cellW * 0.15,
+          cellSize * 0.15,
           Paint()..color = Colors.green.withAlpha(120),
         );
       }
@@ -133,19 +132,19 @@ class ChessBoardPainter extends CustomPainter {
       for (int c = 0; c < 9; c++) {
         final piece = position.pieceAt(r, c);
         if (piece == 0) continue;
-        _drawPiece(canvas, padding + c * cellW, padding + r * cellH, cellW * 0.42, piece);
+        _drawPiece(canvas, pad + c * cellSize, pad + r * cellSize, cellSize * 0.42, piece);
       }
     }
   }
 
-  void _drawPalace(Canvas canvas, double padding, double cellW, double cellH, int topRow) {
+  void _drawPalace(Canvas canvas, double pad, double cellSize, int topRow) {
     final paint = Paint()
       ..color = AppTheme.gridLine
       ..strokeWidth = 0.5;
-    final x1 = padding + 3 * cellW;
-    final y1 = padding + topRow * cellH;
-    final x2 = padding + 5 * cellW;
-    final y2 = padding + (topRow + 2) * cellH;
+    final x1 = pad + 3 * cellSize;
+    final y1 = pad + topRow * cellSize;
+    final x2 = pad + 5 * cellSize;
+    final y2 = pad + (topRow + 2) * cellSize;
     canvas.drawLine(Offset(x1, y1), Offset(x2, y2), paint);
     canvas.drawLine(Offset(x2, y1), Offset(x1, y2), paint);
   }

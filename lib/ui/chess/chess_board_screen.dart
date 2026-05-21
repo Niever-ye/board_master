@@ -49,12 +49,12 @@ class _ChessBoardScreenState extends ConsumerState<ChessBoardScreen> {
               builder: (context, constraints) {
                 final boardW = constraints.maxWidth * 0.95;
                 final boardH = constraints.maxHeight * 0.95;
-                final size = boardW < boardH ? boardW : boardH;
-                final aspectRatio = 9.0 / 10.0; // 9 cols / 10 rows
-                final w = size;
-                final h = w / aspectRatio;
-                final actualH = h < boardH ? h : boardH;
-                final actualW = actualH * aspectRatio;
+                // 9 cells across (8 intervals + padding), 10 cells high (9 intervals + padding)
+                final cellFromW = boardW / 9.0;
+                final cellFromH = boardH / 10.0;
+                final cellSize = cellFromW < cellFromH ? cellFromW : cellFromH;
+                final actualW = cellSize * 9;
+                final actualH = cellSize * 10;
 
                 return Center(
                   child: SizedBox(
@@ -66,11 +66,9 @@ class _ChessBoardScreenState extends ConsumerState<ChessBoardScreen> {
                             game.status != ChessGameStatus.playing) {
                           return;
                         }
-                        final cellW = actualW / 8.0;
-                        final cellH = actualH / 9.0;
-                        final padding = cellW * 0.5;
-                        final col = ((details.localPosition.dx - padding) / cellW).round();
-                        final row = ((details.localPosition.dy - padding) / cellH).round();
+                        final pad = cellSize * 0.5;
+                        final col = ((details.localPosition.dx - pad) / cellSize).round();
+                        final row = ((details.localPosition.dy - pad) / cellSize).round();
                         if (row >= 0 && row < 10 && col >= 0 && col < 9) {
                           ref.read(chessGameProvider.notifier).tapSquare(row, col);
                         }
