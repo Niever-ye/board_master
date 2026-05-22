@@ -9,7 +9,7 @@ import 'connection_state.dart';
 /// Manages the WebSocket connection to the Board Master relay server.
 class GameConnectionService {
   // Configurable server URL
-  static const defaultServerUrl = 'ws://localhost:8080/ws';
+  static const defaultServerUrl = 'wss://boardmaster-production-4b5a.up.railway.app/ws';
 
   final String serverUrl;
   WebSocketChannel? _channel;
