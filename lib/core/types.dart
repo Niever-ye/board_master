@@ -1,4 +1,4 @@
-enum GameType { go, chess }
+enum GameType { go, chess, gomoku }
 
 enum Stone { empty, black, white }
 
@@ -19,3 +19,5 @@ enum Difficulty { easy, medium, hard }
 enum GoGameStatus { playing, blackWins, whiteWins, draw }
 
 enum ChessGameStatus { playing, redWins, blackWins, draw }
+
+enum GomokuGameStatus { playing, blackWins, whiteWins, draw }

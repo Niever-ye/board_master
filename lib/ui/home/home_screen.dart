@@ -49,6 +49,16 @@ class HomeScreen extends StatelessWidget {
                         onTap: () => context.go('/chess'),
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: _GameCard(
+                        title: '五子棋',
+                        subtitle: 'Gomoku',
+                        icon: Icons.circle_outlined,
+                        color: const Color(0xFF2E7D32),
+                        onTap: () => context.go('/gomoku'),
+                      ),
+                    ),
                   ],
                 ),
               ),
