@@ -65,11 +65,10 @@ class _MctsParams {
 int _mctsSearch(_MctsParams params) {
   final rng = Random();
 
-  // Get all legal moves (simple check: empty, not ko, not suicide)
+  // Get all legal moves
   final legalMoves = <int>[];
   for (int i = 0; i < params.board.length; i++) {
     if (params.board[i] == 0 && i != params.koPoint) {
-      // Quick suicide check
       if (_quickLegal(params.board, params.size, i, params.currentColor)) {
         legalMoves.add(i);
       }
@@ -78,32 +77,39 @@ int _mctsSearch(_MctsParams params) {
 
   if (legalMoves.isEmpty) return -1;
 
-  // Determine iterations based on difficulty
-  int iterations;
+  // Determine iterations and time budget
+  int maxIterations;
+  int maxMs;
   double c;
   bool usePatterns;
 
   switch (params.difficulty) {
     case Difficulty.easy:
-      iterations = AiConstants.easyIterations;
+      maxIterations = AiConstants.easyIterations;
+      maxMs = 2000;
       c = 2.0;
       usePatterns = false;
       break;
     case Difficulty.medium:
-      iterations = AiConstants.mediumIterations;
+      maxIterations = AiConstants.mediumIterations;
+      maxMs = 6000;
       c = 1.4;
       usePatterns = true;
       break;
     case Difficulty.hard:
-      iterations = AiConstants.hardIterations;
+      maxIterations = AiConstants.hardIterations;
+      maxMs = 15000;
       c = 1.2;
       usePatterns = true;
       break;
   }
 
-  // Reduce iterations for larger boards to keep response time reasonable
-  if (params.size == 19 && iterations > 15000) {
-    iterations = 15000;
+  // Reduce iterations for 19x19
+  if (params.size == 19 && maxIterations > 15000) {
+    maxIterations = 15000;
+  }
+  if (params.size == 19 && maxMs > 15000) {
+    maxMs = 15000;
   }
 
   // Create root node
@@ -114,9 +120,17 @@ int _mctsSearch(_MctsParams params) {
     unexploredMoves: List.from(legalMoves),
   );
 
-  // MCTS loop
-  for (int iter = 0; iter < iterations; iter++) {
-    // 1. Selection
+  final startTime = DateTime.now();
+  int iter = 0;
+
+  // MCTS loop with time budget
+  for (; iter < maxIterations; iter++) {
+    // Check time budget every 50 iterations
+    if (iter % 50 == 0 && DateTime.now().difference(startTime).inMilliseconds > maxMs) {
+      break;
+    }
+
+    // 1. Selection: walk down fully-expanded tree
     var node = root;
     var simBoard = List<int>.from(params.board);
     var simKo = params.koPoint;
@@ -124,7 +138,6 @@ int _mctsSearch(_MctsParams params) {
 
     while (!node.isLeaf && node.isFullyExpanded) {
       node = node.bestChild(c);
-      // Apply the move
       final result = _applyMoveFast(simBoard, params.size, node.moveIndex, simColor);
       simBoard = result.board;
       simKo = result.koPoint;
@@ -133,11 +146,9 @@ int _mctsSearch(_MctsParams params) {
 
     // 2. Expansion
     if (!node.isFullyExpanded && node.unexploredMoves.isNotEmpty) {
-      // Pick a random unexplored move
       final pickIdx = rng.nextInt(node.unexploredMoves.length);
       final moveIdx = node.unexploredMoves.removeAt(pickIdx);
 
-      // Apply the move
       final result = _applyMoveFast(simBoard, params.size, moveIdx, simColor);
       simBoard = result.board;
       simKo = result.koPoint;
@@ -148,7 +159,7 @@ int _mctsSearch(_MctsParams params) {
       );
       simColor = simColor == 1 ? 2 : 1;
 
-      // Initialize unexplored moves for the new node
+      // Find unexplored moves for new node (only scan once)
       for (int i = 0; i < simBoard.length; i++) {
         if (simBoard[i] == 0 && i != simKo) {
           if (_quickLegal(simBoard, params.size, i, simColor)) {
@@ -161,14 +172,14 @@ int _mctsSearch(_MctsParams params) {
       node = newNode;
     }
 
-    // 3. Simulation (playout)
-    final result = playout(simBoard, params.size, simColor, simKo, usePatterns);
+    // 3. Simulation (playout — now mutation-based, no board copies)
+    final winner = playout(simBoard, params.size, simColor, simKo, usePatterns);
 
     // 4. Backpropagation
     MctsNode? backNode = node;
     while (backNode != null) {
       backNode.visits++;
-      backNode.wins += result;
+      backNode.wins += winner;
       backNode = backNode.parent;
     }
   }

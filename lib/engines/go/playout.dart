@@ -1,7 +1,7 @@
 import 'dart:math';
 import 'package:board_master/engines/go/patterns.dart';
 
-/// Perform a light random playout from the given position.
+/// Perform a fast random playout. Mutates board in-place and restores.
 /// Returns 1.0 if black wins, 0.0 if white wins.
 double playout(
   List<int> board,
@@ -10,18 +10,23 @@ double playout(
   int koPoint,
   bool usePatterns,
 ) {
-  final simBoard = List<int>.from(board);
-  int simKo = koPoint;
+  final rng = Random();
   int simColor = currentColor;
+  int simKo = koPoint;
   int passes = 0;
 
-  final rng = Random();
+  // Track placed stones so we can restore the board after playout
+  final placedStones = <int>[];
+  final capturedStones = <(int, int)>[]; // (index, originalColor)
 
-  // Max moves to prevent infinite loops
-  for (int move = 0; move < size * size * 2; move++) {
-    // Generate legal moves
-    final legalMoves = _generateLegalMoves(simBoard, size, simColor, simKo);
-    if (legalMoves.isEmpty) {
+  // Max moves — one full board fill should be more than enough
+  final maxMoves = size * size;
+
+  for (int move = 0; move < maxMoves; move++) {
+    // Find a legal move (single pass, no board copy)
+    int? chosen = _pickLegalMove(board, size, simColor, simKo, usePatterns, rng);
+
+    if (chosen == null) {
       passes++;
       if (passes >= 2) break;
       simColor = simColor == 1 ? 2 : 1;
@@ -31,27 +36,13 @@ double playout(
 
     passes = 0;
 
-    int chosen;
-    if (usePatterns) {
-      final atari = GoPatterns.findAtariResponse(simBoard, size, simColor);
-      if (atari != null && legalMoves.contains(atari)) {
-        chosen = atari;
-      } else {
-        final ext = GoPatterns.findExtension(simBoard, size, simColor);
-        if (ext != null && legalMoves.contains(ext) && rng.nextDouble() < 0.7) {
-          chosen = ext;
-        } else {
-          chosen = legalMoves[rng.nextInt(legalMoves.length)];
-        }
-      }
-    } else {
-      chosen = legalMoves[rng.nextInt(legalMoves.length)];
+    // Apply move in-place
+    final captureResult = _applyMoveInPlace(board, size, chosen, simColor);
+    placedStones.add(chosen);
+    for (final cap in captureResult.captured) {
+      capturedStones.add((cap, board[cap])); // saved for restore
     }
-
-    // Apply move
-    final result = _applyMove(simBoard, size, chosen, simColor);
-    simBoard.setAll(0, result.board);
-    simKo = result.koPoint;
+    simKo = captureResult.koPoint;
     simColor = simColor == 1 ? 2 : 1;
   }
 
@@ -64,7 +55,7 @@ double playout(
     for (int c = 0; c < size; c++) {
       final idx = r * size + c;
       if (visited.contains(idx)) continue;
-      final s = simBoard[idx];
+      final s = board[idx];
       if (s == 1) {
         blackScore += 1;
         visited.add(idx);
@@ -72,13 +63,13 @@ double playout(
         whiteScore += 1;
         visited.add(idx);
       } else {
-        final territory = _floodFill(simBoard, size, idx);
+        final territory = _floodFill(board, size, idx);
         visited.addAll(territory);
         bool tB = false, tW = false;
         for (final ti in territory) {
           for (final nb in _neighbors(ti, size)) {
-            if (simBoard[nb] == 1) tB = true;
-            if (simBoard[nb] == 2) tW = true;
+            if (board[nb] == 1) tB = true;
+            if (board[nb] == 2) tW = true;
           }
         }
         if (tB && !tW) blackScore += territory.length;
@@ -87,83 +78,140 @@ double playout(
     }
   }
 
+  // Restore board (remove placed stones, restore captures)
+  for (final idx in placedStones) {
+    board[idx] = 0;
+  }
+  for (final (idx, color) in capturedStones) {
+    board[idx] = color;
+  }
+
   return blackScore > whiteScore ? 1.0 : 0.0;
 }
 
-List<int> _generateLegalMoves(
-    List<int> board, int size, int color, int koPoint) {
-  final legal = <int>[];
+/// Pick a single legal move without copying the board.
+int? _pickLegalMove(List<int> board, int size, int color, int ko,
+    bool usePatterns, Random rng) {
+  // Collect legal moves on the fly
+  final legalMoves = <int>[];
+
+  // Try pattern moves first (check only those indices)
+  int? atariTarget;
+  int? extTarget;
+  if (usePatterns) {
+    atariTarget = GoPatterns.findAtariResponse(board, size, color);
+    extTarget = GoPatterns.findExtension(board, size, color);
+  }
+
   for (int i = 0; i < board.length; i++) {
     if (board[i] != 0) continue;
-    if (i == koPoint) continue;
-    if (_isLegal(board, size, i, color)) {
-      legal.add(i);
+    if (i == ko) continue;
+
+    // Fast check: any empty neighbor means it's legal (not suicide)
+    final neighbors = _neighbors(i, size);
+    bool nearEmpty = false;
+    bool nearOpp = false;
+    for (final nb in neighbors) {
+      if (board[nb] == 0) {
+        nearEmpty = true;
+      } else if (board[nb] == _oppColor(color)) {
+        nearOpp = true;
+      }
+      if (nearEmpty && nearOpp) break;
+    }
+
+    if (nearEmpty) {
+      legalMoves.add(i);
+      continue;
+    }
+
+    // Only check full legality for moves that might be suicide or capture-only
+    if (nearOpp && _isLegalFast(board, size, i, color, neighbors)) {
+      legalMoves.add(i);
     }
   }
-  return legal;
+
+  if (legalMoves.isEmpty) return null;
+
+  // Pattern-guided selection
+  if (usePatterns) {
+    if (atariTarget != null && legalMoves.contains(atariTarget)) {
+      return atariTarget;
+    }
+    if (extTarget != null && legalMoves.contains(extTarget) && rng.nextDouble() < 0.7) {
+      return extTarget;
+    }
+  }
+
+  return legalMoves[rng.nextInt(legalMoves.length)];
 }
 
-bool _isLegal(List<int> board, int size, int index, int color) {
-  // Simplified: check suicide and basic capture
-  final simBoard = List<int>.from(board);
-  simBoard[index] = color;
+/// Fast legality check — NOT copying the board. Uses known neighbors.
+bool _isLegalFast(List<int> board, int size, int index, int color,
+    List<int> neighbors) {
+  final oppColor = _oppColor(color);
 
-  final oppColor = color == 1 ? 2 : 1;
-
-  for (final nb in _neighbors(index, size)) {
-    if (simBoard[nb] == oppColor) {
-      final g = _findGroup(simBoard, size, nb, oppColor);
-      if (g != null && _countLiberties(simBoard, size, g) == 0) {
-        for (final gi in g) {
-          simBoard[gi] = 0;
-        }
+  // Check if we capture any opponent group (count liberties before placing)
+  for (final nb in neighbors) {
+    if (board[nb] == oppColor) {
+      final g = _findGroup(board, size, nb, oppColor);
+      if (g != null && _countLiberties(board, size, g) == 1) {
+        return true; // capture makes it legal
       }
     }
   }
 
-  // Check own group has liberties (not suicide)
-  final ownGroup = _findGroup(simBoard, size, index, color);
-  if (ownGroup != null && _countLiberties(simBoard, size, ownGroup) == 0) {
-    return false;
+  // Check for own liberties (temporarily place stone)
+  board[index] = color;
+  int ownLibs = 0;
+  for (final nb in neighbors) {
+    if (board[nb] == 0) {
+      ownLibs++;
+      if (ownLibs > 0) break;
+    } else if (board[nb] == color) {
+      final g = _findGroup(board, size, nb, color);
+      if (g != null) {
+        ownLibs += _countLiberties(board, size, g);
+        if (ownLibs > 0) break;
+      }
+    }
   }
-
-  return true;
+  board[index] = 0;
+  return ownLibs > 0;
 }
 
-_ApplyResult _applyMove(List<int> board, int size, int index, int color) {
-  final newBoard = List<int>.from(board);
-  newBoard[index] = color;
-  final oppColor = color == 1 ? 2 : 1;
+class _CaptureResult {
+  final int koPoint;
+  final List<int> captured;
+  _CaptureResult(this.koPoint, this.captured);
+}
 
-  int captured = 0;
+/// Apply a move in-place on the board. Returns capture info for undo.
+_CaptureResult _applyMoveInPlace(List<int> board, int size, int index, int color) {
+  board[index] = color;
+  final oppColor = _oppColor(color);
+  final captured = <int>[];
   int newKo = -1;
 
   for (final nb in _neighbors(index, size)) {
-    if (newBoard[nb] == oppColor) {
-      final g = _findGroup(newBoard, size, nb, oppColor);
-      if (g != null && _countLiberties(newBoard, size, g) == 0) {
-        captured += g.length;
+    if (board[nb] == oppColor) {
+      final g = _findGroup(board, size, nb, oppColor);
+      if (g != null && _countLiberties(board, size, g) == 0) {
         for (final gi in g) {
-          newBoard[gi] = 0;
+          captured.add(gi);
+          board[gi] = 0;
         }
-        if (captured == 1 && g.length == 1) {
-          final ownG = _findGroup(newBoard, size, index, color);
-          if (ownG != null && _countLiberties(newBoard, size, ownG) == 1) {
-            newKo = g.first;
-          }
+        if (g.length == 1) {
+          newKo = g.first;
         }
       }
     }
   }
 
-  return _ApplyResult(newBoard, newKo);
+  return _CaptureResult(newKo, captured);
 }
 
-class _ApplyResult {
-  final List<int> board;
-  final int koPoint;
-  _ApplyResult(this.board, this.koPoint);
-}
+int _oppColor(int color) => color == 1 ? 2 : 1;
 
 Set<int>? _findGroup(List<int> board, int size, int start, int color) {
   if (board[start] != color) return null;
