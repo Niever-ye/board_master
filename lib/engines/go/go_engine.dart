@@ -7,6 +7,7 @@ import 'package:board_master/engines/go/mcts_node.dart';
 import 'package:board_master/engines/go/playout.dart';
 
 /// MCTS Go engine. Runs on the main isolate (web-compatible).
+/// All board operations are in-place with undo to avoid copies.
 class GoEngine implements EngineInterface {
   @override
   Future<EngineResult> findBestMove(
@@ -16,28 +17,13 @@ class GoEngine implements EngineInterface {
     int koPoint,
     Difficulty difficulty,
   ) async {
-    // Check if there are any legal moves
-    final legalMoves = <int>[];
-    for (int i = 0; i < board.length; i++) {
-      if (board[i] == 0 && i != koPoint) {
-        legalMoves.add(i);
-      }
-    }
-
-    if (legalMoves.isEmpty) {
-      return const EngineResult(isPass: true);
-    }
-
-    final params = _MctsParams(
+    final result = _mctsSearch(
       board: board,
       size: size,
       currentColor: currentColor,
       koPoint: koPoint,
       difficulty: difficulty,
     );
-
-    // Run MCTS synchronously (no Isolate — Flutter Web doesn't support isolates)
-    final result = _mctsSearch(params);
     if (result == -1) return const EngineResult(isPass: true);
 
     final row = result ~/ size;
@@ -46,44 +32,32 @@ class GoEngine implements EngineInterface {
   }
 }
 
-class _MctsParams {
-  final List<int> board;
-  final int size;
-  final int currentColor;
-  final int koPoint;
-  final Difficulty difficulty;
-
-  _MctsParams({
-    required this.board,
-    required this.size,
-    required this.currentColor,
-    required this.koPoint,
-    required this.difficulty,
-  });
+/// A single change to the board, tracked for undo.
+class _Change {
+  final int index;
+  final int oldValue;
+  _Change(this.index, this.oldValue);
 }
 
-int _mctsSearch(_MctsParams params) {
+int _mctsSearch({
+  required List<int> board,
+  required int size,
+  required int currentColor,
+  required int koPoint,
+  required Difficulty difficulty,
+}) {
   final rng = Random();
 
-  // Get all legal moves
-  final legalMoves = <int>[];
-  for (int i = 0; i < params.board.length; i++) {
-    if (params.board[i] == 0 && i != params.koPoint) {
-      if (_quickLegal(params.board, params.size, i, params.currentColor)) {
-        legalMoves.add(i);
-      }
-    }
-  }
-
+  // Collect legal moves with fast check
+  final legalMoves = _fastLegalMoves(board, size, currentColor, koPoint);
   if (legalMoves.isEmpty) return -1;
 
-  // Determine iterations and time budget
   int maxIterations;
   int maxMs;
   double c;
   bool usePatterns;
 
-  switch (params.difficulty) {
+  switch (difficulty) {
     case Difficulty.easy:
       maxIterations = AiConstants.easyIterations;
       maxMs = 2000;
@@ -104,43 +78,40 @@ int _mctsSearch(_MctsParams params) {
       break;
   }
 
-  // Reduce iterations for 19x19
-  if (params.size == 19 && maxIterations > 15000) {
-    maxIterations = 15000;
-  }
-  if (params.size == 19 && maxMs > 15000) {
-    maxMs = 15000;
-  }
+  // Cap for 19x19
+  if (size >= 19 && maxIterations > 15000) maxIterations = 15000;
+  if (size >= 19 && maxMs > 15000) maxMs = 15000;
 
-  // Create root node
   final root = MctsNode(
     moveIndex: -1,
-    stonePlayed: params.currentColor == 1 ? 2 : 1,
+    stonePlayed: currentColor == 1 ? 2 : 1,
     visits: 1,
-    unexploredMoves: List.from(legalMoves),
+    unexploredMoves: legalMoves,
   );
+
+  // Precompute neighbor indices for each board position
+  final neighbors = _buildNeighborCache(size);
 
   final startTime = DateTime.now();
   int iter = 0;
 
   // MCTS loop with time budget
   for (; iter < maxIterations; iter++) {
-    // Check time budget every 50 iterations
-    if (iter % 50 == 0 && DateTime.now().difference(startTime).inMilliseconds > maxMs) {
+    if (iter % 50 == 0 &&
+        DateTime.now().difference(startTime).inMilliseconds > maxMs) {
       break;
     }
 
-    // 1. Selection: walk down fully-expanded tree
+    // 1. Selection: walk down the tree, applying moves in-place
     var node = root;
-    var simBoard = List<int>.from(params.board);
-    var simKo = params.koPoint;
-    var simColor = params.currentColor;
+    int simColor = currentColor;
+    int simKo = koPoint;
+    final undoStack = <_Change>[];
 
     while (!node.isLeaf && node.isFullyExpanded) {
       node = node.bestChild(c);
-      final result = _applyMoveFast(simBoard, params.size, node.moveIndex, simColor);
-      simBoard = result.board;
-      simKo = result.koPoint;
+      _applyInPlace(board, size, node.moveIndex, simColor, undoStack);
+      simKo = _captureAndKo(board, size, node.moveIndex, simColor, undoStack);
       simColor = simColor == 1 ? 2 : 1;
     }
 
@@ -149,9 +120,9 @@ int _mctsSearch(_MctsParams params) {
       final pickIdx = rng.nextInt(node.unexploredMoves.length);
       final moveIdx = node.unexploredMoves.removeAt(pickIdx);
 
-      final result = _applyMoveFast(simBoard, params.size, moveIdx, simColor);
-      simBoard = result.board;
-      simKo = result.koPoint;
+      _applyInPlace(board, size, moveIdx, simColor, undoStack);
+      simKo = _captureAndKo(board, size, moveIdx, simColor, undoStack);
+
       final newNode = MctsNode(
         moveIndex: moveIdx,
         stonePlayed: simColor,
@@ -159,21 +130,21 @@ int _mctsSearch(_MctsParams params) {
       );
       simColor = simColor == 1 ? 2 : 1;
 
-      // Find unexplored moves for new node (only scan once)
-      for (int i = 0; i < simBoard.length; i++) {
-        if (simBoard[i] == 0 && i != simKo) {
-          if (_quickLegal(simBoard, params.size, i, simColor)) {
-            newNode.unexploredMoves.add(i);
-          }
-        }
-      }
+      // Fast unexplored moves scan for the new node
+      newNode.unexploredMoves =
+          _fastLegalMoves(board, size, simColor, simKo);
 
       node.children.add(newNode);
       node = newNode;
     }
 
-    // 3. Simulation (playout — now mutation-based, no board copies)
-    final winner = playout(simBoard, params.size, simColor, simKo, usePatterns);
+    // 3. Simulation (playout — already in-place with undo)
+    final winner = playout(board, size, simColor, simKo, usePatterns);
+
+    // Undo all selection/expansion moves (reverse order)
+    for (int i = undoStack.length - 1; i >= 0; i--) {
+      board[undoStack[i].index] = undoStack[i].oldValue;
+    }
 
     // 4. Backpropagation
     MctsNode? backNode = node;
@@ -184,69 +155,112 @@ int _mctsSearch(_MctsParams params) {
     }
   }
 
-  // Return the move with the most visits
   final best = root.mostVisitedChild();
   return best.moveIndex;
 }
 
-/// Quick legality check for MCTS (no full board copy needed for basic check).
-bool _quickLegal(List<int> board, int size, int index, int color) {
-  // Simple check: if placing here would be suicide without captures
+/// Fast collect all legal moves. Uses the same early-exit approach as playout.
+List<int> _fastLegalMoves(List<int> board, int size, int color, int ko) {
+  final result = <int>[];
   final oppColor = color == 1 ? 2 : 1;
-  final neighbors = _neighborIndices(index, size);
-  bool hasLiberty = false;
-  bool capturesOpp = false;
 
-  for (final nb in neighbors) {
-    if (board[nb] == 0) {
-      hasLiberty = true;
+  for (int i = 0; i < board.length; i++) {
+    if (board[i] != 0 || i == ko) continue;
+
+    // Early exit: if a neighbor is empty, it's legal
+    bool nearEmpty = false;
+    bool nearOpp = false;
+    for (final nb in _neighborIndices(i, size)) {
+      if (board[nb] == 0) {
+        nearEmpty = true;
+        break;
+      }
+      if (board[nb] == oppColor) nearOpp = true;
     }
+
+    if (nearEmpty) {
+      result.add(i);
+    } else if (nearOpp) {
+      // Only check full legality for possible capture-only moves
+      if (_isLegalInPlace(board, size, i, color)) {
+        result.add(i);
+      }
+    }
+    // else: surrounded by own stones only = suicide, skip
+  }
+
+  return result;
+}
+
+/// Check if placing a stone at index is legal. Temporarily places the stone.
+bool _isLegalInPlace(List<int> board, int size, int index, int color) {
+  final oppColor = color == 1 ? 2 : 1;
+
+  for (final nb in _neighborIndices(index, size)) {
     if (board[nb] == oppColor) {
-      // Check if this opponent group would be captured
-      final nbLibs = _quickLiberties(board, size, nb, oppColor);
-      if (nbLibs == 1) {
-        capturesOpp = true;
+      final g = _findGroup(board, size, nb, oppColor);
+      if (g != null && _countLiberties(board, size, g) == 1) {
+        return true; // capture makes it legal
       }
     }
   }
 
-  // If we capture something, it's legal (doesn't check full board but good enough for MCTS)
-  if (capturesOpp) return true;
-
-  // If any neighbor is empty, it's legal (not suicide)
-  if (hasLiberty) return true;
-
-  // Might be suicide - do quick check
-  final ownGroup = _quickFindGroup(board, size, index, color);
-  if (ownGroup != null) {
-    int ownLibs = 0;
-    for (final gi in ownGroup) {
-      for (final nb in _neighborIndices(gi, size)) {
-        if (board[nb] == 0) {
-          ownLibs++;
-          if (ownLibs > 1) return true;
+  // Place stone temporarily to check own liberties
+  board[index] = color;
+  bool hasLiberty = false;
+  for (final nb in _neighborIndices(index, size)) {
+    if (board[nb] == 0) {
+      hasLiberty = true;
+      break;
+    }
+    if (board[nb] == color) {
+      final g = _findGroup(board, size, nb, color);
+      if (g != null) {
+        final libs = _countLiberties(board, size, g);
+        if (libs > 0) {
+          hasLiberty = true;
+          break;
         }
       }
     }
-    return ownLibs > 0;
   }
-
-  return false;
+  board[index] = 0;
+  return hasLiberty;
 }
 
-int _quickLiberties(List<int> board, int size, int index, int color) {
-  final group = _quickFindGroup(board, size, index, color);
-  if (group == null) return 0;
-  final libs = <int>{};
-  for (final gi in group) {
-    for (final nb in _neighborIndices(gi, size)) {
-      if (board[nb] == 0) libs.add(nb);
+/// Place a stone in-place and track the change for undo.
+void _applyInPlace(
+    List<int> board, int size, int index, int color, List<_Change> undo) {
+  undo.add(_Change(index, board[index]));
+  board[index] = color;
+}
+
+/// Remove captured opponent stones after a move. Track changes for undo.
+/// Returns the new ko point (or -1).
+int _captureAndKo(
+    List<int> board, int size, int index, int color, List<_Change> undo) {
+  final oppColor = color == 1 ? 2 : 1;
+  int newKo = -1;
+
+  for (final nb in _neighborIndices(index, size)) {
+    if (board[nb] == oppColor) {
+      final g = _findGroup(board, size, nb, oppColor);
+      if (g != null && _countLiberties(board, size, g) == 0) {
+        for (final gi in g) {
+          undo.add(_Change(gi, board[gi]));
+          board[gi] = 0;
+        }
+        if (g.length == 1) {
+          newKo = g.first;
+        }
+      }
     }
   }
-  return libs.length;
+
+  return newKo;
 }
 
-Set<int>? _quickFindGroup(List<int> board, int size, int start, int color) {
+Set<int>? _findGroup(List<int> board, int size, int start, int color) {
   if (board[start] != color) return null;
   final group = <int>{};
   final queue = <int>[start];
@@ -262,44 +276,14 @@ Set<int>? _quickFindGroup(List<int> board, int size, int start, int color) {
   return group;
 }
 
-_ApplyResultFast _applyMoveFast(List<int> board, int size, int index, int color) {
-  final newBoard = List<int>.from(board);
-  newBoard[index] = color;
-  final oppColor = color == 1 ? 2 : 1;
-
-  int newKo = -1;
-  int captured = 0;
-
-  for (final nb in _neighborIndices(index, size)) {
-    if (newBoard[nb] == oppColor) {
-      final g = _quickFindGroup(newBoard, size, nb, oppColor);
-      if (g != null) {
-        int libs = 0;
-        for (final gi in g) {
-          for (final gnb in _neighborIndices(gi, size)) {
-            if (newBoard[gnb] == 0) libs++;
-          }
-        }
-        if (libs == 0) {
-          captured += g.length;
-          for (final gi in g) {
-            newBoard[gi] = 0;
-          }
-          if (captured == 1 && g.length == 1) {
-            newKo = g.first;
-          }
-        }
-      }
+int _countLiberties(List<int> board, int size, Set<int> group) {
+  final libs = <int>{};
+  for (final idx in group) {
+    for (final nb in _neighborIndices(idx, size)) {
+      if (board[nb] == 0) libs.add(nb);
     }
   }
-
-  return _ApplyResultFast(newBoard, newKo);
-}
-
-class _ApplyResultFast {
-  final List<int> board;
-  final int koPoint;
-  _ApplyResultFast(this.board, this.koPoint);
+  return libs.length;
 }
 
 List<int> _neighborIndices(int idx, int size) {
@@ -311,4 +295,13 @@ List<int> _neighborIndices(int idx, int size) {
   if (c > 0) result.add(idx - 1);
   if (c < size - 1) result.add(idx + 1);
   return result;
+}
+
+/// Precompute neighbors for all board positions.
+List<List<int>> _buildNeighborCache(int size) {
+  final cache = <List<int>>[];
+  for (int i = 0; i < size * size; i++) {
+    cache.add(_neighborIndices(i, size));
+  }
+  return cache;
 }
