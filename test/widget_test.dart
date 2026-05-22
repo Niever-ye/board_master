@@ -7,5 +7,6 @@ void main() {
     expect(find.text('Board Master'), findsOneWidget);
     expect(find.text('围棋'), findsOneWidget);
     expect(find.text('中国象棋'), findsOneWidget);
+    expect(find.text('五子棋'), findsOneWidget);
   });
 }
