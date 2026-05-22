@@ -44443,7 +44443,7 @@ s.b=null
 s.j9(B.k7)},
 Ph(){var s,r,q,p=this,o=null
 if(p.b!=null)return
-try{p.b=A.aOj(A.azv(A.cP("ws://localhost:8080/ws"),o))
+try{p.b=A.aOj(A.azv(A.cP("wss://boardmaster-production-4b5a.up.railway.app/ws"),o))
 p.j9(new A.kO(B.Ft,o,o,o,o,!1,!1,o))
 r=p.b.r.b
 r===$&&A.a()
