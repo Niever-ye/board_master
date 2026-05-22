@@ -1,5 +1,7 @@
 enum GameType { go, chess, gomoku }
 
+enum GameMode { offline, online }
+
 enum Stone { empty, black, white }
 
 enum ChessColor { red, black }

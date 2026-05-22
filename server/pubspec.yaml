@@ -1,0 +1,13 @@
+name: board_master_server
+description: WebSocket relay server for Board Master online PvP.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  shelf: ^1.4.0
+  shelf_router: ^1.1.0
+  shelf_web_socket: ^2.0.0
+  web_socket_channel: ^3.0.0

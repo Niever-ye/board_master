@@ -3,6 +3,8 @@ import 'package:board_master/ui/home/home_screen.dart';
 import 'package:board_master/ui/go/go_board_screen.dart';
 import 'package:board_master/ui/chess/chess_board_screen.dart';
 import 'package:board_master/ui/gomoku/gomoku_board_screen.dart';
+import 'package:board_master/ui/lobby/create_room_screen.dart';
+import 'package:board_master/ui/lobby/join_room_screen.dart';
 import 'package:board_master/ui/records/record_browser_screen.dart';
 import 'package:board_master/ui/settings/settings_screen.dart';
 
@@ -24,6 +26,14 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/gomoku',
       builder: (context, state) => const GomokuBoardScreen(),
+    ),
+    GoRoute(
+      path: '/lobby/create',
+      builder: (context, state) => const CreateRoomScreen(),
+    ),
+    GoRoute(
+      path: '/lobby/join',
+      builder: (context, state) => const JoinRoomScreen(),
     ),
     GoRoute(
       path: '/records',

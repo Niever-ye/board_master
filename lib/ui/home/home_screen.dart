@@ -51,7 +51,29 @@ class HomeScreen extends StatelessWidget {
                   color: const Color(0xFF2E7D32),
                   onTap: () => context.go('/gomoku'),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 32),
+                Text(
+                  'Online PvP',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                _SecondaryButton(
+                  icon: Icons.add_circle_outline,
+                  label: 'Create Room',
+                  onTap: () => context.go('/lobby/create'),
+                ),
+                const SizedBox(height: 8),
+                _SecondaryButton(
+                  icon: Icons.login,
+                  label: 'Join Room',
+                  onTap: () => context.go('/lobby/join'),
+                ),
+                const SizedBox(height: 24),
+                const Divider(),
                 _SecondaryButton(
                   icon: Icons.library_books,
                   label: 'Game Records',

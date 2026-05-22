@@ -12,6 +12,20 @@ class GoControls extends ConsumerWidget {
     final game = gameState.game;
     final isThinking = gameState.isAIThinking;
     final isPlaying = game.status == GoGameStatus.playing;
+    final isOnline = gameState.gameMode == GameMode.online;
+    final canAct = isPlaying && !isThinking && (isOnline ? gameState.isMyTurn : true);
+
+    // Show undo request dialog in online mode
+    if (isOnline && gameState.statusMessage == 'Opponent requests undo') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showUndoRequestDialog(context, ref);
+      });
+    }
+    if (isOnline && gameState.statusMessage == 'Opponent wants a rematch') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showRematchRequestDialog(context, ref);
+      });
+    }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -27,13 +41,13 @@ class GoControls extends ConsumerWidget {
             _ControlButton(
               icon: Icons.undo,
               label: 'Undo',
-              enabled: isPlaying && !isThinking && game.moveHistory.length >= 2,
+              enabled: isPlaying && !isThinking && game.moveHistory.length >= 2 && (isOnline ? gameState.isMyTurn : true),
               onTap: () => ref.read(goGameProvider.notifier).undo(),
             ),
             _ControlButton(
               icon: Icons.pause_circle_outline,
               label: 'Pass',
-              enabled: isPlaying && !isThinking,
+              enabled: canAct,
               onTap: () => ref.read(goGameProvider.notifier).pass(),
             ),
             _ControlButton(
@@ -44,12 +58,64 @@ class GoControls extends ConsumerWidget {
             ),
             _ControlButton(
               icon: Icons.refresh,
-              label: 'New',
+              label: isOnline ? 'Rematch' : 'New',
               enabled: !isThinking,
               onTap: () => _confirmNewGame(context, ref),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showUndoRequestDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Undo Request'),
+        content: const Text('Opponent wants to undo the last move.'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              ref.read(goGameProvider.notifier).rejectUndo();
+            },
+            child: const Text('Reject'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              ref.read(goGameProvider.notifier).acceptUndo();
+            },
+            child: const Text('Accept'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRematchRequestDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rematch?'),
+        content: const Text('Opponent wants a rematch.'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              ref.read(goGameProvider.notifier).newGame();
+            },
+            child: const Text('Reject'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              ref.read(goGameProvider.notifier).acceptNewGame();
+            },
+            child: const Text('Accept'),
+          ),
+        ],
       ),
     );
   }
@@ -79,11 +145,16 @@ class GoControls extends ConsumerWidget {
   }
 
   void _confirmNewGame(BuildContext context, WidgetRef ref) {
+    final gameState = ref.read(goGameProvider);
+    final isOnline = gameState.gameMode == GameMode.online;
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('New Game?'),
-        content: const Text('Start a new game? Current game will be lost.'),
+        title: Text(isOnline ? 'Request Rematch?' : 'New Game?'),
+        content: Text(isOnline
+            ? 'Request a rematch with your opponent?'
+            : 'Start a new game? Current game will be lost.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -94,7 +165,7 @@ class GoControls extends ConsumerWidget {
               Navigator.pop(ctx);
               ref.read(goGameProvider.notifier).newGame();
             },
-            child: const Text('New Game'),
+            child: Text(isOnline ? 'Request' : 'New Game'),
           ),
         ],
       ),

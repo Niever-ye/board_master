@@ -73,6 +73,10 @@ class _GoBoardScreenState extends ConsumerState<GoBoardScreen> {
                                 game.status != GoGameStatus.playing) {
                               return;
                             }
+                            if (gameState.gameMode == GameMode.online &&
+                                !gameState.isMyTurn) {
+                              return;
+                            }
 
                             final cellSize =
                                 boardSize / (pos.size - 1);
@@ -168,7 +172,9 @@ class _InfoBar extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 game.status == GoGameStatus.playing
-                    ? (isPlayerTurn ? 'Your turn' : 'AI thinking...')
+                    ? gameState.gameMode == GameMode.online
+                        ? (gameState.isMyTurn ? 'Your turn' : "Opponent's turn")
+                        : (isPlayerTurn ? 'Your turn' : 'AI thinking...')
                     : 'Game over',
                 style: const TextStyle(
                   fontSize: 14,
