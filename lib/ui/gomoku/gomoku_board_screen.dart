@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:board_master/core/types.dart';
 import 'package:board_master/state/providers.dart';
+import 'package:board_master/state/gomoku_game_notifier.dart';
 import 'package:board_master/ui/gomoku/gomoku_board_painter.dart';
 import 'package:board_master/ui/gomoku/gomoku_controls.dart';
 import 'package:board_master/ui/widgets/thinking_indicator.dart';
