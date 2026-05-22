@@ -149,7 +149,7 @@ class GomokuEngine implements EngineInterface {
   }
 
   /// Generate candidate moves near existing stones, scored by max(self, opp).
-  List<int> _threatNearMoves(
+  List<int> _threatNearbyMoves(
       List<int> board, int size, int self, int opp, int limit) {
     final near = <int>{};
 
