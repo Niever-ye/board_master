@@ -1,8 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide ConnectionState;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:board_master/core/types.dart';
 import 'package:board_master/network/connection_service.dart';
+import 'package:board_master/network/connection_state.dart';
 import 'package:board_master/state/providers.dart';
 
 class CreateRoomScreen extends ConsumerStatefulWidget {
@@ -17,9 +19,29 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
   int _boardSize = 19;
   bool _creating = false;
   String? _error;
+  String? _roomCode;
+  GameConnectionService? _conn;
+  String? _gameName;
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Listen for connection state changes
+    if (_conn != null) {
+      ref.listen(connectionServiceProvider, (_, next) {
+        // Not used directly; we use ValueListenableBuilder below
+      });
+    }
+
+    // If we have a room code, show waiting screen
+    if (_roomCode != null && _conn != null) {
+      return _buildWaitingScreen();
+    }
+
     return Scaffold(
       appBar: AppBar(title: const Text('Create Room')),
       body: Padding(
@@ -68,18 +90,107 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
     );
   }
 
+  Widget _buildWaitingScreen() {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Waiting for Opponent')),
+      body: ValueListenableBuilder<ConnectionState>(
+        valueListenable: _conn!.state,
+        builder: (context, state, _) {
+          // When game starts, navigate
+          if (state.phase == ConnectionPhase.inGame) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                _navigateToGame(_gameName ?? 'go', _conn!);
+              }
+            });
+          }
+
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.meeting_room, size: 64, color: Color(0xFF5C3A28)),
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Room Code',
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 8),
+                  GestureDetector(
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: _roomCode!));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Room code copied!')),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF5C3A28).withAlpha(25),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFF5C3A28).withAlpha(80)),
+                      ),
+                      child: Text(
+                        _roomCode!,
+                        style: const TextStyle(
+                          fontSize: 48,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 12,
+                          color: Color(0xFF5C3A28),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Tap to copy',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 32),
+                  const SizedBox(
+                    width: 24, height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Waiting for opponent to join...',
+                    style: TextStyle(fontSize: 16, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 32),
+                  TextButton(
+                    onPressed: () {
+                      _conn?.disconnect();
+                      setState(() { _roomCode = null; _conn = null; });
+                    },
+                    child: const Text('Cancel'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> _createRoom() async {
     setState(() { _creating = true; _error = null; });
     try {
       final conn = ref.read(connectionServiceProvider);
       final gameName = _selectedGame == GameType.go ? 'go'
           : _selectedGame == GameType.chess ? 'chess' : 'gomoku';
-      await conn.createRoom(gameName, boardSize: _boardSize);
+      final code = await conn.createRoom(gameName, boardSize: _boardSize);
       if (!mounted) return;
-
-      final st = conn.currentState;
-      _navigateToGame(st.game ?? gameName, conn);
+      setState(() {
+        _creating = false;
+        _roomCode = code;
+        _conn = conn;
+        _gameName = gameName;
+      });
     } catch (e) {
+      if (!mounted) return;
       setState(() { _error = e.toString(); _creating = false; });
     }
   }
@@ -88,7 +199,6 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
     final st = conn.currentState;
     final color = st.myColor ?? 'black';
 
-    // Initialize the appropriate notifier
     switch (game) {
       case 'go':
         ref.read(goGameProvider.notifier).initializeOnline(conn, myColor: color);
