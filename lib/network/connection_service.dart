@@ -13,6 +13,7 @@ class GameConnectionService {
 
   final String serverUrl;
   WebSocketChannel? _channel;
+  Stream<dynamic>? _broadcastStream;
   Timer? _heartbeatTimer;
   bool _disposed = false;
 
@@ -136,9 +137,10 @@ class GameConnectionService {
     if (_channel != null) return;
     try {
       _channel = WebSocketChannel.connect(Uri.parse(serverUrl));
+      _broadcastStream = _channel!.stream.asBroadcastStream();
       _updateState(ConnectionState(phase: ConnectionPhase.connecting));
 
-      _channel!.stream.listen(
+      _broadcastStream!.listen(
         (data) {
           final msg = jsonDecode(data as String) as Map<String, dynamic>;
           _handleMessage(msg);
@@ -237,6 +239,7 @@ class GameConnectionService {
   void _handleDisconnect() {
     _heartbeatTimer?.cancel();
     _channel = null;
+    _broadcastStream = null;
     _updateState(const ConnectionState(phase: ConnectionPhase.disconnected));
   }
 
@@ -257,7 +260,7 @@ class GameConnectionService {
   Future<T> _waitForMessage<T>(T? Function(Map<String, dynamic>) matcher) {
     final completer = Completer<T>();
     late StreamSubscription sub;
-    sub = _channel!.stream.listen(
+    sub = _broadcastStream!.listen(
       (data) {
         try {
           final msg = jsonDecode(data as String) as Map<String, dynamic>;
