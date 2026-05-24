@@ -136,20 +136,8 @@ class GameConnectionService {
   Future<void> _ensureConnected() async {
     if (_channel != null) return;
     _updateState(ConnectionState(phase: ConnectionPhase.connecting));
-    try {
-      _channel = WebSocketChannel.connect(Uri.parse(serverUrl));
-      // Wait for the WebSocket connection to open before proceeding.
-      await _channel!.ready;
-      if (_disposed) throw Exception('Disposed');
-    } catch (e) {
-      _channel = null;
-      _updateState(ConnectionState(
-        phase: ConnectionPhase.disconnected,
-        lastError: 'Failed to connect: $e',
-      ));
-      rethrow;
-    }
 
+    _channel = WebSocketChannel.connect(Uri.parse(serverUrl));
     _broadcastStream = _channel!.stream.asBroadcastStream();
     _broadcastStream!.listen(
       (data) {
@@ -159,6 +147,21 @@ class GameConnectionService {
       onDone: _handleDisconnect,
       onError: (_) => _handleDisconnect(),
     );
+
+    try {
+      await _channel!.ready;
+    } catch (_) {
+      // ready may fail on some platforms; fall through to delay
+    }
+    // Safety delay to ensure the socket is fully ready
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    if (_disposed) {
+      _channel?.sink.close();
+      _channel = null;
+      _broadcastStream = null;
+      throw Exception('Disposed');
+    }
   }
 
   void _handleMessage(Map<String, dynamic> msg) {
@@ -223,14 +226,17 @@ class GameConnectionService {
   }
 
   void _send(Map<String, dynamic> msg) {
-    if (_channel == null) return;
-    _channel!.sink.add(jsonEncode(msg));
+    final c = _channel;
+    if (c == null) throw StateError('Not connected');
+    c.sink.add(jsonEncode(msg));
   }
 
   Future<T> _waitForMessage<T>(T? Function(Map<String, dynamic>) matcher) {
+    final stream = _broadcastStream;
+    if (stream == null) throw StateError('Not connected');
     final completer = Completer<T>();
     late StreamSubscription sub;
-    sub = _broadcastStream!.listen(
+    sub = stream.listen(
       (data) {
         try {
           final msg = jsonDecode(data as String) as Map<String, dynamic>;
