@@ -8,7 +8,6 @@ import 'connection_state.dart';
 
 /// Manages the WebSocket connection to the Board Master relay server.
 class GameConnectionService {
-  // Configurable server URL
   static const defaultServerUrl = 'wss://boardmaster-production-4b5a.up.railway.app/ws';
 
   final String serverUrl;
@@ -40,7 +39,7 @@ class GameConnectionService {
 
   /// Connect and create a new room.
   Future<String> createRoom(String game, {int boardSize = 19}) async {
-    _ensureConnected();
+    await _ensureConnected();
     _send({'type': 'create_room', 'game': game, 'board_size': boardSize});
 
     final code = await _waitForMessage((msg) {
@@ -66,7 +65,7 @@ class GameConnectionService {
 
   /// Connect and join an existing room.
   Future<void> joinRoom(String code) async {
-    _ensureConnected();
+    await _ensureConnected();
     _send({'type': 'join_room', 'code': code.toUpperCase()});
 
     await _waitForMessage((msg) {
@@ -124,6 +123,7 @@ class GameConnectionService {
     _heartbeatTimer?.cancel();
     _channel?.sink.close();
     _channel = null;
+    _broadcastStream = null;
     _updateState(const ConnectionState());
   }
 
@@ -133,32 +133,32 @@ class GameConnectionService {
     _stateNotifier.dispose();
   }
 
-  void _ensureConnected() {
+  Future<void> _ensureConnected() async {
     if (_channel != null) return;
+    _updateState(ConnectionState(phase: ConnectionPhase.connecting));
     try {
       _channel = WebSocketChannel.connect(Uri.parse(serverUrl));
-      _broadcastStream = _channel!.stream.asBroadcastStream();
-      _updateState(ConnectionState(phase: ConnectionPhase.connecting));
-
-      _broadcastStream!.listen(
-        (data) {
-          final msg = jsonDecode(data as String) as Map<String, dynamic>;
-          _handleMessage(msg);
-        },
-        onDone: () {
-          _handleDisconnect();
-        },
-        onError: (error) {
-          _handleDisconnect();
-        },
-      );
+      // Wait for the WebSocket connection to open before proceeding.
+      await _channel!.ready;
+      if (_disposed) throw Exception('Disposed');
     } catch (e) {
+      _channel = null;
       _updateState(ConnectionState(
         phase: ConnectionPhase.disconnected,
         lastError: 'Failed to connect: $e',
       ));
       rethrow;
     }
+
+    _broadcastStream = _channel!.stream.asBroadcastStream();
+    _broadcastStream!.listen(
+      (data) {
+        final msg = jsonDecode(data as String) as Map<String, dynamic>;
+        _handleMessage(msg);
+      },
+      onDone: _handleDisconnect,
+      onError: (_) => _handleDisconnect(),
+    );
   }
 
   void _handleMessage(Map<String, dynamic> msg) {
@@ -168,8 +168,6 @@ class GameConnectionService {
     switch (type) {
       case 'opponent_joined':
         _updateState(currentState.copyWith(opponentConnected: true));
-        break;
-
       case 'game_started':
         _updateState(ConnectionState(
           phase: ConnectionPhase.inGame,
@@ -179,60 +177,34 @@ class GameConnectionService {
           boardSize: currentState.boardSize,
           opponentConnected: true,
         ));
-        break;
-
       case 'move':
         final row = msg['row'] as int?;
         final col = msg['col'] as int?;
-        if (row != null && col != null) {
-          onOpponentMove?.call(row, col);
-        }
-        break;
-
+        if (row != null && col != null) onOpponentMove?.call(row, col);
       case 'pass':
         onOpponentPass?.call();
-        break;
-
       case 'game_over':
         onGameOver?.call();
-        break;
-
       case 'undo_request':
         onUndoRequested?.call();
-        break;
-
       case 'undo_accepted':
         onUndoAccepted?.call();
-        break;
-
       case 'undo_rejected':
         onUndoRejected?.call();
-        break;
-
       case 'new_game_request':
         onNewGameRequested?.call();
-        break;
-
       case 'new_game_started':
         final color = msg['your_color'] as String?;
-        // swap colors for the player who was host in previous game
         _updateState(currentState.copyWith(myColor: color));
         onNewGameStarted?.call(color ?? 'black');
-        break;
-
       case 'opponent_disconnected':
         _updateState(currentState.copyWith(opponentDisconnected: true));
         onOpponentDisconnected?.call();
-        break;
-
       case 'opponent_reconnected':
         _updateState(currentState.copyWith(opponentDisconnected: false));
         onOpponentReconnected?.call();
-        break;
-
       case 'error':
         _updateState(currentState.copyWith(lastError: msg['message'] as String));
-        break;
     }
   }
 
@@ -252,9 +224,7 @@ class GameConnectionService {
 
   void _send(Map<String, dynamic> msg) {
     if (_channel == null) return;
-    try {
-      _channel!.sink.add(jsonEncode(msg));
-    } catch (_) {}
+    _channel!.sink.add(jsonEncode(msg));
   }
 
   Future<T> _waitForMessage<T>(T? Function(Map<String, dynamic>) matcher) {
@@ -279,6 +249,13 @@ class GameConnectionService {
         completer.completeError(e);
       },
     );
+    // Timeout after 30 seconds
+    Timer(const Duration(seconds: 30), () {
+      if (!completer.isCompleted) {
+        sub.cancel();
+        completer.completeError(TimeoutException('Server did not respond'));
+      }
+    });
     return completer.future;
   }
 
